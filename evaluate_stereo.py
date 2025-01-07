@@ -707,6 +707,10 @@ def validate_middlebury(model,
 
     return results
 
+def cv2PIL(image):
+    pil_image = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(pil_image)
+    return pil_image
 
 @torch.no_grad()
 def inference_stereo(model,
@@ -741,12 +745,24 @@ def inference_stereo(model,
     if inference_dir is not None:
         filenames = sorted(glob(inference_dir + '/*.png') + glob(inference_dir + '/*.jpg'))
 
-        left_filenames = filenames[::2]
+        left_filenames  = filenames[::2]
         right_filenames = filenames[1::2]
 
     else:
         left_filenames = sorted(glob(inference_dir_left + '/*.png') + glob(inference_dir_left + '/*.jpg'))
         right_filenames = sorted(glob(inference_dir_right + '/*.png') + glob(inference_dir_right + '/*.jpg'))
+
+    left_path  = inference_dir_left
+    right_path = inference_dir_right
+
+    # left_path = "/home/l/project/depth/unimatch/demo/outdoor/img_00/left"
+    # right_path = "/home/l/project/depth/unimatch/demo/outdoor/img_00/right"
+
+    left_filenames  = os.listdir(left_path)
+    right_filenames = os.listdir(right_path)
+
+    left_filenames = sorted(left_filenames)
+    right_filenames = sorted(right_filenames)
 
     assert len(left_filenames) == len(right_filenames)
 
@@ -754,17 +770,31 @@ def inference_stereo(model,
     print('%d test samples found' % num_samples)
 
     fixed_inference_size = inference_size
+    file_error = open("./error.txt", 'w')
 
     for i in range(num_samples):
 
-        if (i + 1) % 50 == 0:
-            print('predicting %d/%d' % (i + 1, num_samples))
+        # if (i + 1) % 50 == 0:
+        # if True:
 
-        left_name = left_filenames[i]
+        left_name  = left_filenames[i]
         right_name = right_filenames[i]
 
-        left = np.array(Image.open(left_name).convert('RGB')).astype(np.float32)
-        right = np.array(Image.open(right_name).convert('RGB')).astype(np.float32)
+        print('{},predicting {}/{}' .format(left_name,i + 1, num_samples))
+
+        cv_left = cv2.imread(os.path.join(left_path, left_name))
+        # cv2.rectangle(cv_left,(0,400),(640,480),(0,0,0,),-1)
+        cv_left = cv_left[slice(0,400),:]
+        pil_left = cv2PIL(cv_left)
+
+        cv_right = cv2.imread(os.path.join(right_path,right_name))
+        # cv2.rectangle(cv_right,(0,400),(640,480),(0,0,0,),-1)
+        cv_right = cv_right[slice(0,400),:]
+        pil_right = cv2PIL(cv_right)
+
+        left  = np.array( pil_left.convert('RGB')).astype(np.float32)
+        right = np.array(pil_right.convert('RGB')).astype(np.float32)
+
         sample = {'left': left, 'right': right}
 
         sample = val_transform(sample)
@@ -824,7 +854,30 @@ def inference_stereo(model,
             write_pfm(save_name_pfm, disp)
 
         disp = vis_disparity(disp)
-        cv2.imwrite(save_name, disp)
+        try:
+            rgb_image = np.append(cv_left,cv_right,1)
+        except:
+            file_error.write(left_name+"\n")
+            continue
+
+        depth = np.append(rgb_image, disp,1)
+
+        cv2.rectangle(depth,(0,0),  (160,70),(0,255,0),-1)
+        cv2.rectangle(depth,(640,0),(640+200,70),(0,255,0),-1)
+        cv2.rectangle(depth,(640+640,0),(640+640+210,70),(0,255,0),-1)
+        cv2.putText(depth,"left",  (20, 50), 5,3, (255,0,255),3)
+        cv2.putText(depth,"right", (0+640,50),5,3,(255,0,255),3)
+        cv2.putText(depth,"depth", (0+640+640,50),5,3,(255,0,255),3)
+        ih,iw,ic = depth.shape
+        cv2.line(depth,(int(iw/3),0),(int(iw/3),ih),(255,0,128),4,1 )
+        cv2.line(depth,(int(iw/3)*2,0),(int(iw/3)*2,ih),(255,0,128),4,2 )
+
+        cv2.imwrite(os.path.join(output_path,left_name),depth , [int(cv2.IMWRITE_PNG_COMPRESSION), 0] )
+
+        cv2.imshow('depth', depth)
+        cv2.waitKey(1)
+
+        # cv2.imwrite(save_name, depth)
 
         if pred_bidir_disp:
             assert pred_disp.size(0) == 2  # [2, H, W]
@@ -840,4 +893,5 @@ def inference_stereo(model,
             disp = vis_disparity(disp)
             cv2.imwrite(save_name, disp)
 
+    file_error.close()
     print('Done!')

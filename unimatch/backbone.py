@@ -8,10 +8,8 @@ class ResidualBlock(nn.Module):
                  ):
         super(ResidualBlock, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3,
-                               dilation=dilation, padding=dilation, stride=stride, bias=False)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
-                               dilation=dilation, padding=dilation, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3,dilation=dilation, padding=dilation, stride=stride, bias=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,dilation=dilation, padding=dilation, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
         self.norm1 = norm_layer(planes)
@@ -22,8 +20,7 @@ class ResidualBlock(nn.Module):
         if stride == 1 and in_planes == planes:
             self.downsample = None
         else:
-            self.downsample = nn.Sequential(
-                nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride), self.norm3)
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride), self.norm3)
 
     def forward(self, x):
         y = x
@@ -38,14 +35,12 @@ class ResidualBlock(nn.Module):
 
 class CNNEncoder(nn.Module):
     def __init__(self, output_dim=128,
-                 norm_layer=nn.InstanceNorm2d,
+                 norm_layer=nn.InstanceNorm2d,  # 需要替换
                  num_output_scales=1,
-                 return_all_scales=False,
                  **kwargs,
                  ):
         super(CNNEncoder, self).__init__()
         self.num_branch = num_output_scales
-        self.return_all_scales = return_all_scales
 
         feature_dims = [64, 96, 128]
 
@@ -58,17 +53,12 @@ class CNNEncoder(nn.Module):
         self.layer2 = self._make_layer(feature_dims[1], stride=2, norm_layer=norm_layer)  # 1/4
 
         # highest resolution 1/4 or 1/8
-        if return_all_scales:  # depthsplat
-            stride = 2
-        else:
-            stride = 2 if num_output_scales == 1 else 1
-        self.layer3 = self._make_layer(feature_dims[2], stride=stride,
-                                       norm_layer=norm_layer,
-                                       )  # 1/4 or 1/8
+        stride = 2 if num_output_scales == 1 else 1
+        self.layer3 = self._make_layer(feature_dims[2], stride=stride,norm_layer=norm_layer,)  # 1/4 or 1/8
 
         self.conv2 = nn.Conv2d(feature_dims[2], output_dim, 1, 1, 0)
 
-        if self.num_branch > 1 and not return_all_scales:
+        if self.num_branch > 1:
             if self.num_branch == 4:
                 strides = (1, 2, 4, 8)
             elif self.num_branch == 3:
@@ -104,26 +94,15 @@ class CNNEncoder(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        output_all_scales = []
         x = self.conv1(x)
         x = self.norm1(x)
         x = self.relu1(x)
 
         x = self.layer1(x)  # 1/2
-        if self.return_all_scales:
-            output_all_scales.append(x)
-
         x = self.layer2(x)  # 1/4
-        if self.return_all_scales:
-            output_all_scales.append(x)
-
         x = self.layer3(x)  # 1/8 or 1/4
 
         x = self.conv2(x)
-
-        if self.return_all_scales:
-            output_all_scales.append(x)
-            return output_all_scales
 
         if self.num_branch > 1:
             out = self.trident_conv([x] * self.num_branch)  # high to low res
